@@ -20,19 +20,27 @@ class BagOfModelSeq2VecEncoder(Seq2VecEncoder):
         model_class = Seq2VecEncoder.by_name(base_encoder_name)
         for i in range(bag_size):
             self._model_bag.append(model_class.from_params(Params(base_encoder_params)))
+        self._param_keys = [x[0]  for x in self._model_bag[0].named_parameters()]
 
     def get_weighted_model(self, model_weights):
+        state_dict_new = {}
+        model_weights = torch.nn.Softmax()(model_weights)
         for key in self._param_keys:
             for i in range(self._bag_size):
-
-                pass
+                try:
+                    state_dict_new[key] += model_weights[i] * self.__model_bag[i].named_paraeters()[key]
+                except KeyError:
+                    state_dict_new[key] = model_weights[i] * self.__model_bag[i].named_parameters()[key]
+        weighted_model = torch.nn.Module.load_state_dict(state_dict_new)
+        return weighted_model
 
     def forward(self, input, model_weights):
         # input size: batch_size X seq_len X dim
         # model_weights: batch_size X num_models
 
-
-        pass
+        weighted_model = self.get_weighted_model(model_weights)
+        predictions =  weighted_model(input)
+        return  predictions
 
 
 @Model.register('bom_tcm')

@@ -56,7 +56,7 @@
     "num_epochs": 40,
     "patience": 5,
     "grad_norm": 5.0,
-    "validation_metric": "+accuracy",
+    "validation_metric": "-loss",
     "cuda_device": -1,
     "optimizer": {
       "type": "adam",

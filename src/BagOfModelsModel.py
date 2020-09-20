@@ -4,11 +4,12 @@ import torch
 from allennlp.common import Params, Registrable
 from allennlp.data import Vocabulary
 from allennlp.models import Model
-from allennlp.modules import TextFieldEmbedder, Seq2VecEncoder
+from allennlp.modules import TextFieldEmbedder, Seq2VecEncoder, FeedForward
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn import util
 from torch.nn import ModuleList
 from torch.nn.functional import nll_loss
+from torch.nn.modules.rnn import LSTM
 
 
 class BagOfModelSeq2VecEncoder(Seq2VecEncoder):
@@ -17,29 +18,38 @@ class BagOfModelSeq2VecEncoder(Seq2VecEncoder):
         super().__init__()
         self._model_bag = ModuleList()
         self._bag_size = bag_size
-        model_class = Seq2VecEncoder.by_name(base_encoder_name)
+        self._model_class = Seq2VecEncoder.by_name(base_encoder_name)
+        self._base_params = base_encoder_params
+
         for i in range(bag_size):
-            self._model_bag.append(model_class.from_params(Params(base_encoder_params)))
+            self._model_bag.append(self._model_class.from_params(Params(base_encoder_params)))
         self._param_keys = [x[0]  for x in self._model_bag[0].named_parameters()]
 
-    def get_weighted_model(self, model_weights):
+    def get_weighted_weights(self, model_weights):
         state_dict_new = {}
         model_weights = torch.nn.Softmax()(model_weights)
         for key in self._param_keys:
             for i in range(self._bag_size):
                 try:
-                    state_dict_new[key] += model_weights[i] * self.__model_bag[i].named_paraeters()[key]
+                    state_dict_new[key] += model_weights[0][i] * {x[0]:x[1] for x in self._model_bag[i].named_parameters()}[key]
                 except KeyError:
-                    state_dict_new[key] = model_weights[i] * self.__model_bag[i].named_parameters()[key]
-        weighted_model = torch.nn.Module.load_state_dict(state_dict_new)
-        return weighted_model
+                    state_dict_new[key] = model_weights[0][i] * {x[0]:x[1] for x in self._model_bag[i].named_parameters()}[key]
+        #weighted_model = self._model_class.from_params(Params(self._base_params))
+        #weighted_model.load_state_dict(state_dict_new)
+        #for param in weighted_model.parameters():
+        #    param.requires_grad = False
+        return state_dict_new
 
-    def forward(self, input, model_weights):
+
+    def functional_model(self, weighted_weights, input, mask):
+        raise NotImplementedError
+
+    def forward(self, input, model_weights,mask):
         # input size: batch_size X seq_len X dim
         # model_weights: batch_size X num_models
 
-        weighted_model = self.get_weighted_model(model_weights)
-        predictions =  weighted_model(input)
+        weighted_weights = self.get_weighted_weights(model_weights)
+        predictions =  self.functional_model(weighted_weights,input,mask)
         return  predictions
 
 
@@ -55,22 +65,18 @@ class BagOfModelsTextClassifier(Model):
         self._text_field_embedder = text_field_embedder
         self._class_predictor = class_predictor
         self._model_chooser = model_chooser # Seq2VecEncoder model choosing does not work for batch sizes > 1
+        self._projector = FeedForward(100,1,5,activations=torch.nn.modules.activation.Sigmoid())
         initializer(self)
 
-    def get_mixed_models(self):
-        raise NotImplementedError
 
-
-    def get_predictions(self):
-        raise NotImplementedError
-
-    def forward(self, tokens, label) -> Dict[str, torch.Tensor]:
+    def forward(self, tokens, label=None) -> Dict[str, torch.Tensor]:
         embedded_tokens = self._text_field_embedder(tokens)
-        model_weights = self._model_chooser(embedded_tokens,util.get_text_field_mask(tokens).float())
-        predictions = self._class_predictor(embedded_tokens,model_weights)
+        mask = util.get_text_field_mask(tokens).float()
+        model_weights = self._model_chooser(embedded_tokens,mask)
+        predictions = self._projector(self._class_predictor(embedded_tokens,model_weights,mask ))
 
         output_dict = {}
-        if label:
+        if label is not None:
             loss = nll_loss(predictions,label)
             output_dict['loss'] = loss
         output_dict['predictions'] = predictions

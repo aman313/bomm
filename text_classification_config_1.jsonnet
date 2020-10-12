@@ -13,8 +13,7 @@
   "validation_data_path": "https://allennlp.s3.amazonaws.com/datasets/sst/dev.txt",
   "test_data_path": "https://allennlp.s3.amazonaws.com/datasets/sst/test.txt",
   "model": {
-    "type": "bom_tcm",
-    "num_class":2,
+    "type": "basic_classifier",
     "text_field_embedder": {
       "token_embedders": {
         "tokens": {
@@ -25,39 +24,29 @@
         }
       }
     },
-    "class_predictor": {
-        "base_encoder_name":"lstm",
-        "base_encoder_params":{
+    "seq2vec_encoder": {
+        "type":"lstm",
             "input_size":100,
-            "hidden_size":50,
-            "num_layers":2,
+            "hidden_size":10,
+            "num_layers":5,
             "bidirectional":true,
             "dropout":0.1
 
         },
-        "bag_size":20
+     "num_labels":2
 
-    },
-    "model_chooser": {
-        "type":"lstm",
-        "input_size":100,
-         "hidden_size":20,
-            "num_layers":2,
-            "bidirectional":false,
-            "dropout":0.1
-    }
 
   },
   "iterator": {
     "type": "bucket",
     "sorting_keys": [["tokens", "num_tokens"]],
-    "batch_size" : 10
+    "batch_size" : 30
   },
   "trainer": {
     "num_epochs": 40,
     "patience": 20,
     "grad_norm": 5.0,
-    "validation_metric": "+accuracy",
+    "validation_metric": "-loss",
     "cuda_device": 0,
     "optimizer": {
       "type": "adam",
